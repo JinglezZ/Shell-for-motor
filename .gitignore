@@ -1,3 +1,5 @@
 *.vtu
 test*.py
 *.pyc
+*.dat
+auxiliary/
