@@ -101,7 +101,7 @@ class Rank3:
 
     return M_Mtrix
 
-  def getFSIFreq(self, m=None, n=None, MaxIter=100, tol=1.e-6):
+  def getFSIFreq(self, m=None, n=None, tol=1.e-6, MaxIter=100):
     """
     Compute the natural frequencies under FSI condition for (m,n) order
 
@@ -110,68 +110,74 @@ class Rank3:
     m : axial order
     n : circumferential order 
      *if (m, n) not provided, they will be set to be (_m, _n) by default
-    MaxIter : maximum iteration step
     tol     : tolerance
+    MaxIter : maximum iteration step
 
     Return values:
     --------------
     eigvals : natural frequency under FSI condition ONLY for radial mode (unit rad/s)
     """
     import scipy.special as ssf
+    import src.NLModalSolver as solver
 
     if m is None:
       m = self._m
     if n is None:
       n = self._n
 
-    dHm = lambda n, z: n*ssf.hankel1(n, z)/z-ssf.hankel1(n+1,z)
+    tolerance = tol
+    maxIterStep = MaxIter
 
-    # Step 0 : get natural freq in vacuo
+    NSolver = solver.NewtonType()
+
+    # circular frequency in uncoupled condition
     omega_0 = self.getModal(m, n)[0][0]
-
-    # Step 1 : iteratively search the eigenvalue under FSI condition
-    iIter = 0
-    res = 1.
-    # A matrix
+    # K/M-matrices in uncoupled condition
     kMat = self.__genKMatrix(m, n)
     mMat = self.__genMMatrix()
-    while (res>tol):
-      AMat = omega_0**2 * mMat-kMat
-      AMat = AMat.astype(complex)
 
-      # compute the fluid load
+    dHm = lambda n, z: n*ssf.hankel1(n, z)/z-ssf.hankel1(n+1,z)
+
+    def AMatrix(omega):
+      # A-matrix in uncoupled condition
+      AMat = omega**2 * mMat-kMat
+      AMat = AMat.astype(complex)
+      # fluid load term FL
       k_n  = m*np.pi/self.Length + 0j
-      k_nr = np.sqrt(omega_0**2/self._AF_Velo**2 - k_n**2)
-      FL = -omega_0**2*self._AF_Dens*ssf.hankel1(n,k_nr*self.Radius)/(k_nr * dHm(n,k_nr*self.Radius)) 
+      k_nr = np.sqrt(omega**2/self._AF_Velo**2 - k_n**2)
+      FL = -omega**2*self._AF_Dens*ssf.hankel1(n,k_nr*self.Radius)/(k_nr * dHm(n,k_nr*self.Radius)) 
+      # A-matrix in coupled condition
       AMat[2, 2] += FL
 
-      # determinate of A
+      return AMat
+
+    def detAMatrix(omega):
+      AMat = AMatrix(omega)
       detA = np.linalg.det(AMat)
 
-      # derivate of detA
-      dA11 = 2.*self.Density*self.Thick*omega_0
-      dA22 = 2.*self.Density*self.Thick*omega_0
-      dA33 = 2.*self.Density*self.Thick*omega_0
+      return detA
+
+    def dDetAMatrix(omega):
+      AMat = AMatrix(omega)
+      k_n  = m*np.pi/self.Length + 0j
+      k_nr = np.sqrt(omega**2/self._AF_Velo**2 - k_n**2)
+
+      dA11 = dA22 = dA33 = 2.*self.Density*self.Thick*omega
       #  dFL
-      dFL_Part1 = -self._AF_Dens*ssf.hankel1(n,k_nr*self.Radius)/dHm(n,k_nr*self.Radius)*omega_0/k_nr*(1.-k_n**2/k_nr**2)
-      dFL_Part2 = n*omega_0/(self._AF_Velo**2*k_nr**2)*( 1./(self.Radius*k_nr)*ssf.hankel1(n,k_nr*self.Radius)**2/dHm(n,k_nr*self.Radius)**2 - ssf.hankel1(n,k_nr*self.Radius)/dHm(n,k_nr*self.Radius) )
-      dFL_Part3 = self.Radius*omega_0/(self._AF_Velo**2*k_nr)*( ssf.hankel1(n,k_nr*self.Radius)*dHm(n+1,k_nr*self.Radius)/dHm(n,k_nr*self.Radius)**2+1. )
-      dFL = dFL_Part1 - self._AF_Dens*omega_0**2/k_nr*(dFL_Part2+dFL_Part3)
+      dFL_Part1 = -self._AF_Dens*ssf.hankel1(n,k_nr*self.Radius)/dHm(n,k_nr*self.Radius)*omega/k_nr*(1.-k_n**2/k_nr**2)
+      dFL_Part2 = n*omega/(self._AF_Velo**2*k_nr**2)*( 1./(self.Radius*k_nr)*ssf.hankel1(n,k_nr*self.Radius)**2/dHm(n,k_nr*self.Radius)**2 - ssf.hankel1(n,k_nr*self.Radius)/dHm(n,k_nr*self.Radius) )
+      dFL_Part3 = self.Radius*omega/(self._AF_Velo**2*k_nr)*( ssf.hankel1(n,k_nr*self.Radius)*dHm(n+1,k_nr*self.Radius)/dHm(n,k_nr*self.Radius)**2+1. )
+      dFL = dFL_Part1 - self._AF_Dens*omega**2/k_nr*(dFL_Part2+dFL_Part3)
       dA33 += dFL
       #  integration
       ddetA = (AMat[1,1]*AMat[2,2]-AMat[1,2]*AMat[2,1])*dA11 + (AMat[0,0]*AMat[2,2]-AMat[0,2]*AMat[2,0])*dA22 + (AMat[0,0]*AMat[1,1]-AMat[0,1]*AMat[1,0])*dA33
 
-      #print(omega_0/(2.*np.pi))
+      return ddetA
 
-      omega_1 = omega_0 - detA/ddetA
-      res = np.abs(omega_1 - omega_0)
-      omega_0 = omega_1
+    omega = NSolver.Classical(omega_0, detAMatrix, dDetAMatrix, tol=tolerance, maxIter=maxIterStep)
+    #omega = NSolver.Secant(omega_0, 0.99, detAMatrix, tol=tolerance, maxIter=maxIterStep)
 
-      iIter += 1
-      if iIter > MaxIter :
-        break
-
-    return omega_0
+    return omega
 
 
   def getModal(self, m=None, n=None):
