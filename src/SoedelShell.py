@@ -1,5 +1,3 @@
-import cmath
-from re import I
 import numpy as np
 from scipy.linalg import eigh
 
@@ -100,6 +98,7 @@ class Rank3:
     M_Mtrix[2, 2] = self.Density * self.Thick
 
     return M_Mtrix
+
 
   def getFSIFreq(self, m=None, n=None, tol=1.e-6, MaxIter=100):
     """
@@ -318,6 +317,8 @@ class Rank5(Rank3):
   """
   
   _shearCoef = 2./3.
+  _AF_Velo = 0.0
+  _AF_Dens = 0.0
 
   def __init__(self, a=1, L=1, h=0.01, E=110000000000, rho=7850, mu=0.3) -> None:
     super().__init__(a, L, h, E, rho, mu)
@@ -337,22 +338,22 @@ class Rank5(Rank3):
     """
 
 
-  def __genKMatrix(self):
+  def __genKMatrix(self, m, n):
     pi = np.pi
     K_Mtrix = np.zeros(shape=(5, 5), dtype=np.float64)
 
-    K_Mtrix[0, 0] = self._K*( (self._m*pi/self.Length)**2 + (1.-self.Possion)/2.*(self._n/self.Radius)**2 )
-    K_Mtrix[0, 1] = -self._K*(1+self.Possion)/2.*(self._m*pi/self.Length)*(self._n/self.Radius)
-    K_Mtrix[0, 2] = -(self.Possion*self._K/self.Radius)*(self._m*pi/self.Length)
-    K_Mtrix[1, 1] = self._K*( (1.-self.Possion)/2.*(self._m*pi/self.Length)**2 + (self._n/self.Radius)**2 ) + self._shearCoef*(self._G*self.Thick/self.Radius**2)
-    K_Mtrix[1, 2] = (self._K/self.Radius)*(self._n/self.Radius)+(self._n/self.Radius)*(self._shearCoef*(self._G*self.Thick/self.Radius))
+    K_Mtrix[0, 0] = self._K*( (m*pi/self.Length)**2 + (1.-self.Possion)/2.*(n/self.Radius)**2 )
+    K_Mtrix[0, 1] = -self._K*(1+self.Possion)/2.*(m*pi/self.Length)*(n/self.Radius)
+    K_Mtrix[0, 2] = -(self.Possion*self._K/self.Radius)*(m*pi/self.Length)
+    K_Mtrix[1, 1] = self._K*( (1.-self.Possion)/2.*(m*pi/self.Length)**2 + (n/self.Radius)**2 ) + self._shearCoef*(self._G*self.Thick/self.Radius**2)
+    K_Mtrix[1, 2] = (self._K/self.Radius)*(n/self.Radius)+(n/self.Radius)*(self._shearCoef*(self._G*self.Thick/self.Radius))
     K_Mtrix[1, 4] = -self._shearCoef*(self._G*self.Thick/self.Radius)
-    K_Mtrix[2, 2] = self._shearCoef*self._G*self.Thick*((self._m*pi/self.Length)**2+(self._n/self.Radius)**2)+self._K/self.Radius**2
-    K_Mtrix[2, 3] = self._shearCoef*self._G*self.Thick*(self._m*pi/self.Length)
-    K_Mtrix[2, 4] = -self._shearCoef*self._G*self.Thick*(self._n/self.Radius)
-    K_Mtrix[3, 3] = self._shearCoef*self._G*self.Thick+self._D*( (1.-self.Possion)/2.*(self._n/self.Radius)**2+(self._m*pi/self.Length)**2 )
-    K_Mtrix[3, 4] = -self._D*((1.+self.Possion)/2.)*(self._n/self.Radius)*(self._m*pi/self.Length)
-    K_Mtrix[4, 4] = self._shearCoef*self._G*self.Thick+self._D*( (1.-self.Possion)/2.*(self._m*pi/self.Length)**2+(self._n/self.Radius)**2 )
+    K_Mtrix[2, 2] = self._shearCoef*self._G*self.Thick*((m*pi/self.Length)**2+(n/self.Radius)**2)+self._K/self.Radius**2
+    K_Mtrix[2, 3] = self._shearCoef*self._G*self.Thick*(m*pi/self.Length)
+    K_Mtrix[2, 4] = -self._shearCoef*self._G*self.Thick*(n/self.Radius)
+    K_Mtrix[3, 3] = self._shearCoef*self._G*self.Thick+self._D*( (1.-self.Possion)/2.*(n/self.Radius)**2+(m*pi/self.Length)**2 )
+    K_Mtrix[3, 4] = -self._D*((1.+self.Possion)/2.)*(n/self.Radius)*(m*pi/self.Length)
+    K_Mtrix[4, 4] = self._shearCoef*self._G*self.Thick+self._D*( (1.-self.Possion)/2.*(m*pi/self.Length)**2+(n/self.Radius)**2 )
 
     K_Mtrix[1, 0] = K_Mtrix[0, 1]
     K_Mtrix[2, 0] = K_Mtrix[0, 2]
@@ -381,16 +382,27 @@ class Rank5(Rank3):
     self._shearCoef = coef
 
 
-  def getModal(self):
+  def getModal(self, m=None, n=None):
     """
     Compute the natural frequencies and modal shapes for (m,n) order
+
+    Inputs:
+    -------
+    m : axial order
+    n : circumferential order 
+     *if (m, n) not provided, they will be set to be (_m, _n) by default
 
     Return values:
     --------------
     eigvals[0:5] : containing 5 natural frequencies with increasing order
     eigvecs[0:5,0:5] : containing modal shapes ( eigvecs[0/1/2/3/4][:] ) for three types of vibration mode
     """
-    eigvals, eigvecs = eigh(self.__genKMatrix(), self.__genMMatrix(), eigvals_only=False)
+    if m is None:
+      m = self._m
+    if n is None:
+      n = self._n
+
+    eigvals, eigvecs = eigh(self.__genKMatrix(m, n), self.__genMMatrix(), eigvals_only=False)
     
     eigvals = np.sqrt(eigvals)
 
@@ -400,3 +412,63 @@ class Rank5(Rank3):
 
     return eigvals, eigvecs
 
+
+  def getFSIFreq(self, m=None, n=None, tol=1.e-6, MaxIter=100):
+    """
+    Compute the natural frequencies under FSI condition for (m,n) order
+
+    Inputs:
+    -------
+    m : axial order
+    n : circumferential order 
+     *if (m, n) not provided, they will be set to be (_m, _n) by default
+    tol     : tolerance
+    MaxIter : maximum iteration step
+
+    Return values:
+    --------------
+    eigvals : natural frequency under FSI condition ONLY for radial mode (unit rad/s)
+    """
+    import scipy.special as ssf
+    import src.NLModalSolver as solver
+
+    if m is None:
+      m = self._m
+    if n is None:
+      n = self._n
+
+    tolerance = tol
+    maxIterStep = MaxIter
+
+    NSolver = solver.NewtonType()
+
+    # circular frequency in uncoupled condition
+    omega_0 = self.getModal(m, n)[0][0]
+    # K/M-matrices in uncoupled condition
+    kMat = self.__genKMatrix(m, n)
+    mMat = self.__genMMatrix()
+
+    dHm = lambda n, z: n*ssf.hankel1(n, z)/z-ssf.hankel1(n+1,z)
+
+    def AMatrix(omega):
+      # A-matrix in uncoupled condition
+      AMat = omega**2 * mMat-kMat
+      AMat = AMat.astype(complex)
+      # fluid load term FL
+      k_n  = m*np.pi/self.Length + 0j
+      k_nr = np.sqrt(omega**2/self._AF_Velo**2 - k_n**2)
+      FL = -omega**2*self._AF_Dens*ssf.hankel1(n,k_nr*self.Radius)/(k_nr * dHm(n,k_nr*self.Radius)) 
+      # A-matrix in coupled condition
+      AMat[2, 2] += FL
+
+      return AMat
+
+    def detAMatrix(omega):
+      AMat = AMatrix(omega)
+      detA = np.linalg.det(AMat)
+      return detA
+
+    
+    omega = NSolver.Secant(omega_0, 0.99, detAMatrix, tol=tolerance, maxIter=maxIterStep)
+
+    return omega
